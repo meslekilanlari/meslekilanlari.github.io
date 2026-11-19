@@ -7,6 +7,7 @@ Kullanım:
 --soru: verilen kanalların o günkü İLK quiz'inden "Günün sorusu" videosu
         (soru + şıklar → 5 sn geri sayım → doğru cevap + açıklama → kanala katıl).
 --ilan: verilen kanalların o günkü ilan kartlarından "Bugünün ilanları" videosu (en fazla 5 ilan).
+Görünüm: defter kâğıdı + el yazısı; metni "📌 ÇIKMIŞ SORU (121. Dönem ÖGG): …" ile başlayan quiz varsa o seçilir ve "SINAVDA ÇIKTI!" etiketi eklenir.
 Çıktı: KLASOR/<kanal>_soru.mp4, KLASOR/<kanal>_ilanlar.mp4; her video için <ad>.json {baslik, aciklama, hashtagler}
 (liste.json'a aynen kopyalanır) ve okunabilir <ad>.txt (başlık + açıklama + en altta hashtag'ler).
 """
@@ -223,57 +224,107 @@ def kaydet(sahneler, hedef):
         raise RuntimeError(f"ffmpeg hatası: {hedef}")
 
 
-# ---------- Günün sorusu ----------
+# ---------- Günün sorusu (defter kâğıdı + el yazısı + kırmızı kalem) ----------
+FONT_DIR = Path(__file__).resolve().parent / "fonts"
+MUREKKEP, KALEM, KAGIT = (28, 48, 118), (214, 40, 40), (252, 249, 240)
+CIKMIS_ON = re.compile(r"^\s*📌\s*ÇIKMIŞ SORU\s*(?:\(([^)]*)\))?\s*:?\s*", re.I)
+
+
+def el(n, kalin=False):
+    anahtar = ("el_k" if kalin else "el", n)
+    if anahtar not in _fcache:
+        yol = FONT_DIR / ("Caveat-Bold.ttf" if kalin else "PatrickHand.ttf")
+        _fcache[anahtar] = ImageFont.truetype(str(yol), n) if yol.exists() else font("orta", n)
+    return _fcache[anahtar]
+
+
+def cikmis_bilgisi(metin):
+    """'📌 ÇIKMIŞ SORU (121. Dönem ÖGG): …' → ('121. Dönem ÖGG', soru) ; değilse (None, metin)."""
+    m = CIKMIS_ON.match(metin)
+    return ((m.group(1) or "").strip() or "Çıkmış soru", metin[m.end():].strip()) if m else (None, metin)
+
+
 def soru_videosu(k, r, hedef):
-    soru = r["metin"].strip()
+    cikmis, soru = cikmis_bilgisi(r["metin"].strip())
     sec = [s.strip() for s in r["secenekler"].split("|") if s.strip()][:5]
     dogru = int(r["dogru"]) - 1
     aciklama = (r.get("aciklama") or "").strip()
     harf = "ABCDE"
+    X0, X1, Y0, Y1 = 50, W - 50, 450, H - 130
+    tx, tw = 185, X1 - 185 - 60
+    olcu = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    for n in range(92, 39, -2):                     # soru + şıklar kâğıda sığacak en büyük el yazısı
+        fs, fo = el(n), el(n - 6)
+        adim_s, adim_o = int(n * 1.22), int((n - 6) * 1.22)
+        ss = sar(olcu, soru, fs, tw)
+        so = [sar(olcu, f"{harf[i]}) {s}", fo, tw)[:2] for i, s in enumerate(sec)]
+        toplam = len(ss) * adim_s + 30 + sum(len(x) * adim_o + 18 for x in so)
+        if toplam <= (Y1 - Y0) - 560:
+            break
+    sticker = "SINAVDA ÇIKTI!" if cikmis else "10 saniyede çöz!"
 
-    def soru_karesi(cevap=False, kalan=None):
+    def kare(asama, p=0.0):
         im = arkaplan(k)
-        ust_bant(im, k, "GÜNÜN SORUSU")
+        ust_bant(im, k, f"ÇIKMIŞ SORU · {cikmis}"[:30] if cikmis else "GÜNÜN SORUSU")
         d = ImageDraw.Draw(im)
-        fs = uygun_font(d, soru, "kalin", 64, 44, W - 160, 7)
-        y = yaz(d, soru, fs, 80, 480, W - 160, sinir=7) + 40
-        fo = uygun_font(d, max(sec, key=len), "orta", 46, 34, W - 300, 2)
-        for i, s in enumerate(sec):
-            satir = sar(d, s, fo, W - 300)[:2]
-            yuk = 50 + len(satir) * int(fo.size * 1.25)
-            if cevap and i == dogru:
-                kutu, yazi = (46, 160, 90), "white"
-            elif cevap:
-                kutu, yazi = (255, 255, 255, 0), (210, 215, 230)
-            else:
-                kutu, yazi = "white", (25, 25, 35)
-            if cevap and i != dogru:
-                d.rounded_rectangle([80, y, W - 80, y + yuk], radius=28, outline=(210, 215, 230), width=3)
-            else:
-                d.rounded_rectangle([80, y, W - 80, y + yuk], radius=28, fill=kutu)
-            d.text((115, y + 25), harf[i], font=font("kalin", fo.size), fill=yazi)
-            yaz(d, "\n".join(satir), fo, 190, y + 25, W - 300, renk=yazi)
-            if cevap and i == dogru:
-                d.text((W - 160, y + 20), "✓", font=font("kalin", 60), fill="white")
-            y += yuk + 22
-        if kalan is not None:
-            d.rounded_rectangle([80, H - 260, W - 80, H - 230], radius=15, fill=(255, 255, 255), outline="white", width=2)
-            d.rounded_rectangle([82, H - 258, W - 82, H - 232], radius=13, fill=hex2rgb(RENK[k][0]))
-            d.rounded_rectangle([80, H - 260, 80 + max(30, int((W - 160) * kalan)), H - 230], radius=15, fill="white")
-            t = f"Cevabını düşün… {max(1, int(kalan * 5 + 0.999))}"
-            d.text((80, H - 340), t, font=font("orta", 44), fill="white")
-        elif cevap and aciklama:
-            yaz(d, aciklama, font("normal", 38), 80, max(y + 20, H - 470), W - 160,
-                renk=(235, 240, 250), sinir=5)
+        d.rounded_rectangle([X0 + 10, Y0 + 14, X1 + 10, Y1 + 14], radius=26, fill=(0, 0, 0))  # gölge
+        d.rounded_rectangle([X0, Y0, X1, Y1], radius=26, fill=KAGIT)
+        # yerleşim: önce satır konumları, sonra çizgiler, en son mürekkep
+        yazilar, cizgiler, kutular = [], [], []
+        y = Y0 + 50
+        for s in ss:
+            yazilar.append((y, s, fs)); cizgiler.append(y + int(fs.size * 1.08)); y += adim_s
+        y += 30
+        for satir in so:
+            ust = y
+            for s in satir:
+                yazilar.append((y, s, fo)); cizgiler.append(y + int(fo.size * 1.08)); y += adim_o
+            kutular.append((ust, y))
+            y += 18
+        son = cizgiler[-1]
+        while son + adim_o < Y1 - 30:
+            son += adim_o
+            cizgiler.append(son)
+        for cy in cizgiler:
+            d.line([(X0 + 20, cy), (X1 - 20, cy)], fill=(208, 222, 242), width=2)
+        d.line([(150, Y0 + 20), (150, Y1 - 20)], fill=(238, 168, 168), width=3)
+        for yy, s, f in yazilar:
+            d.text((tx, yy), s, font=f, fill=MUREKKEP)
+        if asama in ("giris", "sayac"):
+            fst = el(64, True)
+            w = d.textlength(sticker, font=fst)
+            st = Image.new("RGBA", (int(w) + 70, 120), (0, 0, 0, 0))
+            ImageDraw.Draw(st).rounded_rectangle([0, 0, w + 70, 120], radius=24, fill=(255, 214, 64))
+            ImageDraw.Draw(st).text((35, 14), sticker, font=fst, fill=(40, 30, 10))
+            st = st.rotate(6, expand=True, resample=Image.BICUBIC)
+            im.paste(st, (W - st.width - 40, Y0 - st.height // 2 - 10), st)
+        if asama == "sayac":
+            kalan = max(1, int((1 - p) * 5 + 0.999))
+            d.text((tx, Y1 - 200), f"Cevabını düşün… {kalan}", font=el(76, True), fill=KALEM)
+            uz = int((X1 - 60 - tx) * (1 - p))
+            d.line([(tx, Y1 - 90), (tx + uz, Y1 - 90)], fill=(70, 70, 80), width=8)
+        if asama == "cevap":
+            ust, alt = kutular[dogru]
+            kutu = [tx - 30, ust - 14, X1 - 40, alt + 4]
+            aci = 360 * min(1.0, p / 0.25)
+            if aci > 0:
+                for kalinlik, kay in ((7, 0), (5, 4)):
+                    d.arc([kutu[0] - kay, kutu[1] - kay, kutu[2] + kay, kutu[3] + kay], -100, -100 + aci,
+                          fill=KALEM, width=kalinlik)
+            if p > 0.28:                              # ✓ işareti (kalemle)
+                cx, cy = X1 - 120, (ust + alt) // 2
+                d.line([(cx - 30, cy), (cx - 8, cy + 26), (cx + 36, cy - 34)], fill=(30, 150, 70), width=12, joint="curve")
+            if p > 0.35 and aciklama:
+                yaz(d, aciklama, el(62, True), tx, y + 40, tw, renk=KALEM, aralik=1.1, sinir=6)
         return im
 
     kaydet([
-        (soru_karesi(), 1.5),
-        (lambda t: soru_karesi(kalan=1 - t), 5),
-        (soru_karesi(cevap=True), 5),
-        (kapanis(k, "Her gün yeni soru", "Telegram'da ücretsiz · çözümlü sorular, konu özetleri ve sınav takvimi"), 3.5),
+        (kare("giris"), 1.5),
+        (lambda t: kare("sayac", t), 5),
+        (lambda t: kare("cevap", t), 5.5),
+        (kapanis(k, "Her gün yeni soru", "Telegram'da ücretsiz · çözümlü sorular, konu özetleri ve PDF'ler"), 3.5),
     ], hedef)
-    return paylasim_metni(k, "soru", konu=r.get("_konu", ""), soru=soru)
+    return paylasim_metni(k, "soru", konu=r.get("_konu", ""), soru=soru, cikmis=cikmis)
 
 
 # ---------- Bugünün ilanları ----------
@@ -316,23 +367,28 @@ def hashtag(x):
     return "#" + x if x else ""
 
 
-def paylasim_metni(k, tur, konu="", soru="", ilanlar=None, tarih=""):
+def paylasim_metni(k, tur, konu="", soru="", ilanlar=None, tarih="", cikmis=None):
     """Instagram/YouTube için {baslik, aciklama, hashtagler}. aciklama: videoya özel bilgi + kanal bilgisi + link
     (hashtag'ler ayrı listede; paylaşım sırasında en alta eklenir)."""
     ad = KANAL[k][0]
     seo = [hashtag(x) for x in KANAL[k][2].split(",")]
     if tur == "soru":
         sinav = SINAV_ADI.get(k, ad.split("–")[0].strip())
-        baslik = kisalt(f"{sinav} Günün Sorusu" + (f": {konu}" if konu else ""), 80) + " #shorts"
-        ust = [f"🧠 {sinav} – Günün sorusu! Cevabını yorumlara yaz 👇"]
+        if cikmis:
+            baslik = kisalt(f"{sinav} Çıkmış Soru ({cikmis})" + (f": {konu}" if konu else ""), 80) + " #shorts"
+            ust = [f"📌 {sinav} – Sınavda çıkmış soru ({cikmis})! Cevabını yorumlara yaz 👇"]
+        else:
+            baslik = kisalt(f"{sinav} Günün Sorusu" + (f": {konu}" if konu else ""), 80) + " #shorts"
+            ust = [f"🧠 {sinav} – Günün sorusu! Cevabını yorumlara yaz 👇"]
         if konu:
             ust.append(f"📚 Konu: {konu}")
         ust.append(f"❓ {kisalt(soru, 160)}")
-        alt = (f"ℹ️ Doğru cevap ve açıklaması, konunun madde madde özeti ve 10 soruluk ücretsiz PDF "
+        alt = (f"📄 Konu özeti + 10 soruluk PDF'i istiyorsan yoruma \"PDF\" yaz, linki gönderelim.\n\n"
+               f"ℹ️ Doğru cevap ve açıklaması, konunun madde madde özeti ve 10 soruluk ücretsiz PDF "
                f"\"{ad}\" Telegram kanalımızda. Her gün yeni sorular ve konu anlatımlarıyla devam ediyoruz:\n"
                f"👉 https://t.me/{k}")
         seo += ["#" + kucuk(sinav).replace("-", "").replace(" ", ""), "#sınavhazırlık", "#gününsorusu", "#soruçözümü",
-                "#sınavsoruları", "#shorts"]
+                "#sınavsoruları", "#shorts"] + (["#çıkmışsorular"] if cikmis else [])
         if konu:
             seo.append(hashtag(konu.split("(")[0])[:40])
     else:
@@ -392,7 +448,8 @@ def main():
     tarih = min((r["tarih"] for r in satirlar), default="")
     uretilen = []
     for k in a.soru:
-        r = next((r for r in satirlar if r["kanal"] == k and r.get("tur") == "quiz" and r.get("dogru")), None)
+        quizler = [r for r in satirlar if r["kanal"] == k and r.get("tur") == "quiz" and r.get("dogru")]
+        r = next((q for q in quizler if cikmis_bilgisi(q["metin"])[0]), quizler[0] if quizler else None)
         if not r or k not in RENK:
             print(f"ATLANDI {k}: quiz yok")
             continue

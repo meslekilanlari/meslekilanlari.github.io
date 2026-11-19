@@ -1,0 +1,1 @@
+PatrickHand.ttf ve Caveat-Bold.ttf: Google Fonts, SIL Open Font License 1.1 (https://openfontlicense.org). Kaynak: @fontsource paketleri (latin + latin-ext birleştirildi).
