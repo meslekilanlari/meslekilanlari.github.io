@@ -3,7 +3,7 @@ Instagram "kaydedilecek bilgi kartı" (carousel) üreticisi – 1080x1350 PNG sa
 
 Kullanım:
   python kart.py kart.json cikti_on_eki
-  → cikti_on_eki_1.png (kapak), _2.png … (içerik), son sayfa (kanala davet)
+  → cikti_on_eki_1.jpg (kapak), _2.jpg … (içerik), son sayfa (kanala davet) – JPEG, 4:5 (Instagram carousel şartı)
 
 kart.json:
 {
@@ -182,8 +182,8 @@ def main():
     for i, im in enumerate(sayfalar, 1):
         if i > 1:
             alt_serit(im, ImageDraw.Draw(im), v["kanal"], i, len(sayfalar))
-        im.save(f"{sys.argv[2]}_{i}.png", optimize=True)
-    print(f"{len(sayfalar)} sayfa yazıldı: {sys.argv[2]}_1..{len(sayfalar)}.png")
+        im.convert("RGB").save(f"{sys.argv[2]}_{i}.jpg", quality=92, optimize=True)
+    print(f"{len(sayfalar)} sayfa yazıldı: {sys.argv[2]}_1..{len(sayfalar)}.jpg")
 
 
 if __name__ == "__main__":

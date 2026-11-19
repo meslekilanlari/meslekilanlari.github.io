@@ -244,7 +244,8 @@ def cikmis_bilgisi(metin):
     return ((m.group(1) or "").strip() or "Çıkmış soru", metin[m.end():].strip()) if m else (None, metin)
 
 
-def soru_videosu(k, r, hedef):
+def soru_kagidi(k, r, etiket=None, sticker=None, sayac_sn=5):
+    """Defter kâğıdı karesi üreticisi: kare(asama, p) → Image. asama: giris | sayac | cevap."""
     cikmis, soru = cikmis_bilgisi(r["metin"].strip())
     sec = [s.strip() for s in r["secenekler"].split("|") if s.strip()][:5]
     dogru = int(r["dogru"]) - 1
@@ -261,11 +262,12 @@ def soru_videosu(k, r, hedef):
         toplam = len(ss) * adim_s + 30 + sum(len(x) * adim_o + 18 for x in so)
         if toplam <= (Y1 - Y0) - 560:
             break
-    sticker = "SINAVDA ÇIKTI!" if cikmis else "10 saniyede çöz!"
+    sticker = sticker or ("SINAVDA ÇIKTI!" if cikmis else "10 saniyede çöz!")
+    etiket = etiket or (f"ÇIKMIŞ SORU · {cikmis}"[:30] if cikmis else "GÜNÜN SORUSU")
 
     def kare(asama, p=0.0):
         im = arkaplan(k)
-        ust_bant(im, k, f"ÇIKMIŞ SORU · {cikmis}"[:30] if cikmis else "GÜNÜN SORUSU")
+        ust_bant(im, k, etiket)
         d = ImageDraw.Draw(im)
         d.rounded_rectangle([X0 + 10, Y0 + 14, X1 + 10, Y1 + 14], radius=26, fill=(0, 0, 0))  # gölge
         d.rounded_rectangle([X0, Y0, X1, Y1], radius=26, fill=KAGIT)
@@ -299,7 +301,7 @@ def soru_videosu(k, r, hedef):
             st = st.rotate(6, expand=True, resample=Image.BICUBIC)
             im.paste(st, (W - st.width - 40, Y0 - st.height // 2 - 10), st)
         if asama == "sayac":
-            kalan = max(1, int((1 - p) * 5 + 0.999))
+            kalan = max(1, int((1 - p) * sayac_sn + 0.999))
             d.text((tx, Y1 - 200), f"Cevabını düşün… {kalan}", font=el(76, True), fill=KALEM)
             uz = int((X1 - 60 - tx) * (1 - p))
             d.line([(tx, Y1 - 90), (tx + uz, Y1 - 90)], fill=(70, 70, 80), width=8)
@@ -318,6 +320,18 @@ def soru_videosu(k, r, hedef):
                 yaz(d, aciklama, el(62, True), tx, y + 40, tw, renk=KALEM, aralik=1.1, sinir=6)
         return im
 
+    return kare, cikmis, soru
+
+
+def hikaye_kaydet(kare, hedef):
+    """Instagram hikâyesi için 2 JPEG (1080x1920): soru ve cevap."""
+    kare("giris").save(str(hedef).replace(".mp4", "_hikaye_soru.jpg"), quality=92)
+    kare("cevap", 1.0).save(str(hedef).replace(".mp4", "_hikaye_cevap.jpg"), quality=92)
+
+
+def soru_videosu(k, r, hedef):
+    kare, cikmis, soru = soru_kagidi(k, r)
+    hikaye_kaydet(kare, hedef)
     kaydet([
         (kare("giris"), 1.5),
         (lambda t: kare("sayac", t), 5),
@@ -325,6 +339,68 @@ def soru_videosu(k, r, hedef):
         (kapanis(k, "Her gün yeni soru", "Telegram'da ücretsiz · çözümlü sorular, konu özetleri ve PDF'ler"), 3.5),
     ], hedef)
     return paylasim_metni(k, "soru", konu=r.get("_konu", ""), soru=soru, cikmis=cikmis)
+
+
+# ---------- Hızlı test: 5 soru · 30 saniye ----------
+def hizli_video(k, quizler, hedef, konu=""):
+    quizler = quizler[:5]
+    sahneler = []
+    for i, r in enumerate(quizler, 1):
+        kare, _, _ = soru_kagidi(k, r, etiket=f"HIZLI TEST · {i}/{len(quizler)}", sticker=f"{len(quizler)} soru · {len(quizler) * 5} sn", sayac_sn=3)
+        if i == 1:
+            sahneler.append((kare("giris"), 1.0))
+        sahneler += [(lambda t, kr=kare: kr("sayac", t), 3), (lambda t, kr=kare: kr("cevap", 0.3 + t * 0.7), 2.2)]
+    sahneler.append((kapanis(k, "Kaç tanesini bildin?", "Yorumlara yaz · her gün yeni sorular Telegram'da"), 3.5))
+    kaydet(sahneler, hedef)
+    m = paylasim_metni(k, "soru", konu=konu, soru=quizler[0]["metin"])
+    sinav = SINAV_ADI.get(k, KANAL[k][0].split("–")[0].strip())
+    m["baslik"] = kisalt(f"{sinav} Hızlı Test: {len(quizler)} Soru {len(quizler) * 5} Saniye" + (f" – {konu}" if konu else ""), 80) + " #shorts"
+    m["aciklama"] = m["aciklama"].replace(m["aciklama"].split("\n")[0], f"⚡ {sinav} – {len(quizler)} soru, {len(quizler) * 5} saniye! Kaç tanesini bildin? Yorumlara yaz 👇", 1)
+    m["aciklama"] = "\n".join(x for x in m["aciklama"].split("\n") if not x.startswith("❓"))
+    return m
+
+
+# ---------- Büyük alım duyurusu (tek kurum + büyük rakam) ----------
+def tarih_tr(t):
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", t or "")
+    return f"{m.group(3)}.{m.group(2)}.{m.group(1)}" if m else (t or "")
+
+
+def alim_videosu(k, i, hedef):
+    i = dict(i, son=tarih_tr(i.get("son")))
+    sayi = max((int(x) for x in re.findall(r"\((\d+)\)", i["pozisyon"])), default=0)
+    toplam = sum(int(x) for x in re.findall(r"\((\d+)\)", i["pozisyon"])) or sayi
+
+    def kare(p):
+        im = arkaplan(k)
+        ust_bant(im, k, "YENİ ALIM")
+        d = ImageDraw.Draw(im)
+        y = 520
+        for s in sar(d, i["firma"], font("kalin", 76), W - 160)[:3]:
+            d.text((80, y), s, font=font("kalin", 76), fill="white"); y += 92
+        y += 30
+        n = str(int(toplam * min(1, p * 1.6))) if toplam else ""
+        if n:
+            d.text((80, y), n, font=font("kalin", 260), fill=(255, 214, 64)); y += 290
+            d.text((80, y), "PERSONEL ALINACAK", font=font("kalin", 64), fill="white"); y += 110
+        for s in sar(d, re.sub(r"\s*\(\d+\)", "", i["pozisyon"]), font("orta", 46), W - 160)[:4]:
+            d.text((80, y), s, font=font("orta", 46), fill=(235, 240, 250)); y += 60
+        y += 30
+        alt = " · ".join(x for x in [i["il"], (f"Son başvuru {i['son']}" if i.get("son") else "")] if x)
+        if alt:
+            d.rounded_rectangle([80, y, 80 + d.textlength(alt, font=font("kalin", 44)) + 60, y + 84], radius=42, fill="white")
+            d.text((110, y + 14), alt, font=font("kalin", 44), fill=hex2rgb(RENK[k][0]))
+        return im
+
+    kaydet([(lambda t: kare(t), 6), (kapanis(k, "Başvuru linki ve şartlar Telegram'da", "Her gün yeni kamu alımları · reklamsız"), 3.5)], hedef)
+    ad = KANAL[k][0]
+    baslik = kisalt(f"{i['firma']} {toplam} personel alacak" if toplam else f"{i['firma']} personel alımı", 80) + " #shorts"
+    acik = (f"📢 {i['firma']} " + (f"{toplam} personel alacak!" if toplam else "personel alımı yapıyor!") + "\n"
+            f"💼 {re.sub(r'[ ]*[(][0-9]+[)]', '', i['pozisyon'])}\n" + (f"📍 {i['il']}\n" if i["il"] else "") +
+            (f"📅 Son başvuru: {i['son']}\n" if i.get("son") else "") +
+            f"\nℹ️ Başvuru linki, şartlar ve her gün yeni alımlar \"{ad}\" Telegram kanalımızda:\n👉 https://t.me/{k}")
+    seo = [hashtag(x) for x in KANAL[k][2].split(",")] + ["#" + i["il"], "#kamupersonelalımı", "#personelalımı", "#memuralımı", "#kpss", "#shorts"]
+    return {"baslik": baslik[:90], "aciklama": acik, "hashtagler": [h.lstrip("#") for h in dict.fromkeys(h for h in seo if len(h) > 1)][:15]}
 
 
 # ---------- Bugünün ilanları ----------
@@ -430,6 +506,8 @@ def main():
     p.add_argument("--cikti", required="--youtube-notu" not in sys.argv)
     p.add_argument("--soru", nargs="*", default=[])
     p.add_argument("--ilan", nargs="*", default=[])
+    p.add_argument("--hizli", nargs="*", default=[], help="kanalların günün quiz'lerinden 5 soru/30 sn hızlı test videosu")
+    p.add_argument("--alim", nargs="*", default=[], help="kanalın en büyük kontenjanlı ilanından büyük alım duyuru videosu")
     p.add_argument("--youtube-notu", nargs=3, metavar=("JSON", "SAAT", "VIDEO_ADI"),
                    help="<ad>.json'dan kullanıcının YouTube'a yapıştıracağı metni yazdırır")
     a = p.parse_known_args()[0] if "--youtube-notu" in sys.argv else p.parse_args()
@@ -466,6 +544,25 @@ def main():
             continue
         hedef = cikti / f"{k}_ilanlar.mp4"
         yaz_paylasim(hedef, ilan_videosu(k, ilanlar, hedef, tarih))
+        uretilen.append(hedef.name)
+    for k in a.hizli:
+        qs = [r for r in satirlar if r["kanal"] == k and r.get("tur") == "quiz" and r.get("dogru")]
+        if len(qs) < 3 or k not in RENK:
+            print(f"ATLANDI {k}: hızlı test için en az 3 quiz gerekli ({len(qs)})")
+            continue
+        konu = next((x["metin"].split("\n")[0].split(":", 1)[1].strip() for x in satirlar
+                     if x["kanal"] == k and x.get("tur") == "metin" and x["metin"].lstrip().startswith("📚") and ":" in x["metin"].split("\n")[0]), "")
+        hedef = cikti / f"{k}_hizli.mp4"
+        yaz_paylasim(hedef, hizli_video(k, qs, hedef, konu))
+        uretilen.append(hedef.name)
+    for k in a.alim:
+        ilanlar = [i for i in (ilan_ayristir(r) for r in satirlar if r["kanal"] == k) if i]
+        enb = max(ilanlar, key=lambda i: sum(int(x) for x in re.findall(r"\((\d+)\)", i["pozisyon"])), default=None)
+        if not enb or k not in RENK:
+            print(f"ATLANDI {k}: ilan yok")
+            continue
+        hedef = cikti / f"{k}_alim.mp4"
+        yaz_paylasim(hedef, alim_videosu(k, enb, hedef))
         uretilen.append(hedef.name)
     print("Üretilen videolar:", ", ".join(uretilen) or "yok")
 
