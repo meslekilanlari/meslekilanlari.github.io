@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 import tempfile
 import wave
 from pathlib import Path
@@ -355,13 +356,31 @@ def yaz_paylasim(hedef, m):
                                          " ".join("#" + h for h in m["hashtagler"]), encoding="utf-8")
 
 
+def youtube_notu(m, saat, video_adi):
+    """Kullanıcının YouTube'a yüklerken yapıştıracağı metin (yalnızca yazması gerekenler)."""
+    bolum = "SABAH" if saat < "15:00" else "AKŞAM"
+    return (f"YOUTUBE'A YÜKLEME – {bolum} {saat}\nVideo: {video_adi}\n\n"
+            f"1) BAŞLIK (Title) kutusuna:\n{m['baslik']}\n\n"
+            f"2) AÇIKLAMA (Description) kutusuna:\n{m['aciklama']}\n\n" + " ".join("#" + h for h in m["hashtagler"]) + "\n\n"
+            f"3) ETİKETLER (Daha fazla göster → Tags) kutusuna:\n" + ", ".join(h for h in m["hashtagler"] if h != "shorts") + "\n\n"
+            f"4) Kategori: Education (Eğitim)\n"
+            f"5) Görünürlük → Planla (Schedule): bugün {saat}\n\n"
+            f"Instagram'a {saat}'de otomatik paylaşılıyor; orada bir şey yapmanız gerekmiyor.\n")
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--csv", nargs="+", required=True)
-    p.add_argument("--cikti", required=True)
+    p.add_argument("--csv", nargs="+", required="--youtube-notu" not in sys.argv)
+    p.add_argument("--cikti", required="--youtube-notu" not in sys.argv)
     p.add_argument("--soru", nargs="*", default=[])
     p.add_argument("--ilan", nargs="*", default=[])
-    a = p.parse_args()
+    p.add_argument("--youtube-notu", nargs=3, metavar=("JSON", "SAAT", "VIDEO_ADI"),
+                   help="<ad>.json'dan kullanıcının YouTube'a yapıştıracağı metni yazdırır")
+    a = p.parse_known_args()[0] if "--youtube-notu" in sys.argv else p.parse_args()
+    if a.youtube_notu:
+        j, saat, ad = a.youtube_notu
+        print(youtube_notu(json.load(open(j, encoding="utf-8")), saat, ad), end="")
+        return
     cikti = Path(a.cikti)
     cikti.mkdir(parents=True, exist_ok=True)
     satirlar = []
