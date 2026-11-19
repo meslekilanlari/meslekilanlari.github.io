@@ -7,11 +7,14 @@ Kullanım:
 --soru: verilen kanalların o günkü İLK quiz'inden "Günün sorusu" videosu
         (soru + şıklar → 5 sn geri sayım → doğru cevap + açıklama → kanala katıl).
 --ilan: verilen kanalların o günkü ilan kartlarından "Bugünün ilanları" videosu (en fazla 5 ilan).
-Çıktı: KLASOR/<kanal>_soru.mp4, KLASOR/<kanal>_ilanlar.mp4 ve her video için paylaşım açıklaması (.txt).
+Çıktı: KLASOR/<kanal>_soru.mp4, KLASOR/<kanal>_ilanlar.mp4; her video için <ad>.json {baslik, aciklama, hashtagler}
+(liste.json'a aynen kopyalanır) ve okunabilir <ad>.txt (başlık + açıklama + en altta hashtag'ler).
 """
 import argparse
 import csv
 import hashlib
+import json
+import re
 import subprocess
 import tempfile
 import wave
@@ -269,10 +272,7 @@ def soru_videosu(k, r, hedef):
         (soru_karesi(cevap=True), 5),
         (kapanis(k, "Her gün yeni soru", "Telegram'da ücretsiz · çözümlü sorular, konu özetleri ve sınav takvimi"), 3.5),
     ], hedef)
-    return (f"🧠 Günün sorusu – cevabını yorumlara yaz!\n\n"
-            f"✅ Doğru cevap ve açıklaması, her gün yeni sorular, konu özetleri ve ücretsiz PDF'ler "
-            f"Telegram'daki \"{KANAL[k][0]}\" kanalımızda:\n👉 t.me/{k}\n\n"
-            + etiketler(k, 4) + " #sınavhazırlık #gününsorusu")
+    return paylasim_metni(k, "soru", konu=r.get("_konu", ""), soru=soru)
 
 
 # ---------- Bugünün ilanları ----------
@@ -298,10 +298,61 @@ def ilan_videosu(k, ilanlar, hedef, tarih):
     sahneler = [(kare(0), 1.0)] + [(kare(n), 2.2) for n in range(1, len(ilanlar) + 1)]
     sahneler.append((kapanis(k, "Başvuru linkleri Telegram'da", "Her gün yeni ilan · il etiketiyle · reklamsız"), 3.5))
     kaydet(sahneler, hedef)
-    iller = " ".join(dict.fromkeys("#" + i["il"] for i in ilanlar))
-    return (f"📍 Bugünün {kucuk(KANAL[k][0].split('–')[0].strip())}\n\n"
-            f"🔗 Başvuru linkleri, şartlar ve her gün yeni ilanlar Telegram'daki \"{KANAL[k][0]}\" kanalımızda:\n"
-            f"👉 t.me/{k}\n\n{iller} " + etiketler(k, 3) + " #işilanı #iş")
+    return paylasim_metni(k, "ilan", ilanlar=ilanlar, tarih=tarih)
+
+
+SINAV_ADI = {"kpss_gunluksoru": "KPSS", "ogg_sinav": "ÖGG", "ozelguvenliksinavi": "ÖGG", "ags_hazirlik": "AGS-ÖABT",
+             "isguzmani_sinav": "İSG", "utt_sinav": "ÜTT", "saglik_atama": "KPSS P3", "sinav_gorevi": "KPSS"}
+
+
+def kisalt(m, n):
+    m = " ".join(m.split())
+    return m if len(m) <= n else m[:n - 1].rsplit(" ", 1)[0] + "…"
+
+
+def hashtag(x):
+    x = re.sub(r"[^\wçğıöşüÇĞİÖŞÜ]", "", kucuk(x))
+    return "#" + x if x else ""
+
+
+def paylasim_metni(k, tur, konu="", soru="", ilanlar=None, tarih=""):
+    """Instagram/YouTube için {baslik, aciklama, hashtagler}. aciklama: videoya özel bilgi + kanal bilgisi + link
+    (hashtag'ler ayrı listede; paylaşım sırasında en alta eklenir)."""
+    ad = KANAL[k][0]
+    seo = [hashtag(x) for x in KANAL[k][2].split(",")]
+    if tur == "soru":
+        sinav = SINAV_ADI.get(k, ad.split("–")[0].strip())
+        baslik = kisalt(f"{sinav} Günün Sorusu" + (f": {konu}" if konu else ""), 80) + " #shorts"
+        ust = [f"🧠 {sinav} – Günün sorusu! Cevabını yorumlara yaz 👇"]
+        if konu:
+            ust.append(f"📚 Konu: {konu}")
+        ust.append(f"❓ {kisalt(soru, 160)}")
+        alt = (f"ℹ️ Doğru cevap ve açıklaması, konunun madde madde özeti ve 10 soruluk ücretsiz PDF "
+               f"\"{ad}\" Telegram kanalımızda. Her gün yeni sorular ve konu anlatımlarıyla devam ediyoruz:\n"
+               f"👉 https://t.me/{k}")
+        seo += ["#" + kucuk(sinav).replace("-", "").replace(" ", ""), "#sınavhazırlık", "#gününsorusu", "#soruçözümü",
+                "#sınavsoruları", "#shorts"]
+        if konu:
+            seo.append(hashtag(konu.split("(")[0])[:40])
+    else:
+        ilanlar = ilanlar or []
+        baslik = kisalt(f"Bugünün {ad.split('–')[0].strip()} ({tarih[8:10]}.{tarih[5:7]})", 80) + " #shorts"
+        ust = [f"📍 Bugünün {kucuk(ad.split('–')[0].strip())} – {len(ilanlar)} yeni ilan"]
+        for i in ilanlar:
+            yer = i["il"] + (f"/{i['ilce']}" if i.get("ilce") else "")
+            ust.append(f"• {i['pozisyon']} – {i['firma']} ({yer})" + (f" · {i['maas']}" if i.get("maas") else ""))
+        alt = (f"ℹ️ Başvuru linkleri, şartlar ve son başvuru tarihleri \"{ad}\" Telegram kanalımızda. "
+               f"Her gün yeni ilanlarla devam ediyoruz:\n👉 https://t.me/{k}")
+        seo += list(dict.fromkeys("#" + i["il"] for i in ilanlar)) + ["#işilanı", "#işilanları", "#iş", "#işarıyorum",
+                                                                        "#elemanaranıyor", "#shorts"]
+    hashtagler = [h.lstrip("#") for h in dict.fromkeys(h for h in seo if len(h) > 1)][:15]
+    return {"baslik": baslik[:90], "aciklama": "\n".join(ust) + "\n\n" + alt, "hashtagler": hashtagler}
+
+
+def yaz_paylasim(hedef, m):
+    hedef.with_suffix(".json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+    hedef.with_suffix(".txt").write_text(m["baslik"] + "\n\n" + m["aciklama"] + "\n\n" +
+                                         " ".join("#" + h for h in m["hashtagler"]), encoding="utf-8")
 
 
 def main():
@@ -327,7 +378,10 @@ def main():
             print(f"ATLANDI {k}: quiz yok")
             continue
         hedef = cikti / f"{k}_soru.mp4"
-        hedef.with_suffix(".txt").write_text(soru_videosu(k, r, hedef), encoding="utf-8")
+        konu = next((x["metin"].split("\n")[0].split(":", 1)[1].strip() for x in satirlar
+                     if x["kanal"] == k and x.get("tur") == "metin" and x["metin"].lstrip().startswith("📚") and ":" in x["metin"].split("\n")[0]), "")
+        r["_konu"] = konu
+        yaz_paylasim(hedef, soru_videosu(k, r, hedef))
         uretilen.append(hedef.name)
     for k in a.ilan:
         ilanlar = [i for i in (ilan_ayristir(r) for r in satirlar if r["kanal"] == k) if i]
@@ -335,7 +389,7 @@ def main():
             print(f"ATLANDI {k}: yeterli ilan yok ({len(ilanlar)})")
             continue
         hedef = cikti / f"{k}_ilanlar.mp4"
-        hedef.with_suffix(".txt").write_text(ilan_videosu(k, ilanlar, hedef, tarih), encoding="utf-8")
+        yaz_paylasim(hedef, ilan_videosu(k, ilanlar, hedef, tarih))
         uretilen.append(hedef.name)
     print("Üretilen videolar:", ", ".join(uretilen) or "yok")
 
