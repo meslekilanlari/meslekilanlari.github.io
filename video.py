@@ -265,7 +265,7 @@ def soru_kagidi(k, r, etiket=None, sticker=None, sayac_sn=5):
     sticker = sticker or ("SINAVDA ÇIKTI!" if cikmis else "10 saniyede çöz!")
     etiket = etiket or (f"ÇIKMIŞ SORU · {cikmis}"[:30] if cikmis else "GÜNÜN SORUSU")
 
-    def kare(asama, p=0.0):
+    def kare(asama, p=0.0, acik=None):
         im = arkaplan(k)
         ust_bant(im, k, etiket)
         d = ImageDraw.Draw(im)
@@ -275,12 +275,12 @@ def soru_kagidi(k, r, etiket=None, sticker=None, sayac_sn=5):
         yazilar, cizgiler, kutular = [], [], []
         y = Y0 + 50
         for s in ss:
-            yazilar.append((y, s, fs)); cizgiler.append(y + int(fs.size * 1.08)); y += adim_s
+            yazilar.append((y, s, fs, -1)); cizgiler.append(y + int(fs.size * 1.08)); y += adim_s
         y += 30
-        for satir in so:
+        for oi, satir in enumerate(so):
             ust = y
             for s in satir:
-                yazilar.append((y, s, fo)); cizgiler.append(y + int(fo.size * 1.08)); y += adim_o
+                yazilar.append((y, s, fo, oi)); cizgiler.append(y + int(fo.size * 1.08)); y += adim_o
             kutular.append((ust, y))
             y += 18
         son = cizgiler[-1]
@@ -290,8 +290,9 @@ def soru_kagidi(k, r, etiket=None, sticker=None, sayac_sn=5):
         for cy in cizgiler:
             d.line([(X0 + 20, cy), (X1 - 20, cy)], fill=(208, 222, 242), width=2)
         d.line([(150, Y0 + 20), (150, Y1 - 20)], fill=(238, 168, 168), width=3)
-        for yy, s, f in yazilar:
-            d.text((tx, yy), s, font=f, fill=MUREKKEP)
+        for yy, s, f, oi in yazilar:
+            if acik is None or oi < acik:               # kademeli açılış: önce soru, sonra şıklar tek tek
+                d.text((tx, yy), s, font=f, fill=MUREKKEP)
         if asama in ("giris", "sayac"):
             fst = el(64, True)
             w = d.textlength(sticker, font=fst)
@@ -323,6 +324,45 @@ def soru_kagidi(k, r, etiket=None, sticker=None, sayac_sn=5):
     return kare, cikmis, soru
 
 
+KANCALAR = [("BUNU BİLİYOR MUSUN?", "10 saniyen var!"), ("ÇOĞU KİŞİ BURADA TAKILIYOR", "Sen çözebilir misin?"),
+            ("KAÇ KİŞİ DOĞRU BİLİR?", "Cevabını yoruma yaz"), ("SADECE 10 SANİYE!", "Hazır mısın?")]
+
+
+def kanca(k, ust, alt, sinav=""):
+    """Videonun ilk ~1.6 sn'si: iri başlık, 'pop' büyüme. İzleyici ilk saniyede kaydırmasın diye."""
+    tek = {}
+
+    def kare(t):
+        im = arkaplan(k)
+        d = ImageDraw.Draw(im)
+        if sinav:
+            f = font("kalin", 46)
+            w = d.textlength(sinav, font=f)
+            d.rounded_rectangle([(W - w) / 2 - 36, 330, (W + w) / 2 + 36, 420], radius=45, fill=(255, 214, 64))
+            d.text(((W - w) / 2, 342), sinav, font=f, fill=(40, 30, 10))
+        ol = min(1.0, t / 0.18)                         # ilk 0.3 sn'de büyüyerek gelir
+        boy = int(156 * (0.72 + 0.28 * (1 - (1 - ol) ** 3)))
+        satirlar = None
+        for n in range(boy, 60, -4):
+            f = font("kalin", n)
+            satirlar = sar(d, ust, f, W - 140)
+            if len(satirlar) <= 3:
+                break
+        y = 760 - len(satirlar) * int(f.size * 1.2) // 2
+        for s_ in satirlar:
+            w = d.textlength(s_, font=f)
+            d.text(((W - w) / 2 + 4, y + 5), s_, font=f, fill=(0, 0, 0))
+            d.text(((W - w) / 2, y), s_, font=f, fill="white")
+            y += int(f.size * 1.2)
+        if t > 0.35:
+            f2 = font("orta", 62)
+            w = d.textlength(alt, font=f2)
+            d.rounded_rectangle([(W - w) / 2 - 40, y + 50, (W + w) / 2 + 40, y + 160], radius=50, fill="white")
+            d.text(((W - w) / 2, y + 68), alt, font=f2, fill=hex2rgb(RENK[k][0]))
+        return im
+    return kare
+
+
 def hikaye_kaydet(kare, hedef):
     """Instagram hikâyesi için 2 JPEG (1080x1920): soru ve cevap."""
     kare("giris").save(str(hedef).replace(".mp4", "_hikaye_soru.jpg"), quality=92)
@@ -332,8 +372,12 @@ def hikaye_kaydet(kare, hedef):
 def soru_videosu(k, r, hedef):
     kare, cikmis, soru = soru_kagidi(k, r)
     hikaye_kaydet(kare, hedef)
+    h = int(hashlib.md5((k + soru).encode()).hexdigest(), 16)
+    ust, alt = ("BU SORU SINAVDA ÇIKTI!", "Sen doğru bilir miydin?") if cikmis else KANCALAR[h % len(KANCALAR)]
+    n_sec = len([x for x in r["secenekler"].split("|") if x.strip()][:5])
     kaydet([
-        (kare("giris"), 1.5),
+        (kanca(k, ust, alt, SINAV_ADI.get(k, KANAL[k][0].split("–")[0].strip())[:30]), 1.7),
+        (lambda t: kare("giris", acik=int(t * (n_sec + 1))), 2.2),
         (lambda t: kare("sayac", t), 5),
         (lambda t: kare("cevap", t), 5.5),
         (kapanis(k, "Her gün yeni soru", "Telegram'da ücretsiz · çözümlü sorular, konu özetleri ve PDF'ler"), 3.5),
@@ -344,7 +388,7 @@ def soru_videosu(k, r, hedef):
 # ---------- Hızlı test: 5 soru · 30 saniye ----------
 def hizli_video(k, quizler, hedef, konu=""):
     quizler = quizler[:5]
-    sahneler = []
+    sahneler = [(kanca(k, f"{len(quizler)} SORU · {len(quizler) * 5} SANİYE", "Kaç doğru yaparsın?", SINAV_ADI.get(k, KANAL[k][0].split("–")[0].strip())[:30]), 1.7)]
     for i, r in enumerate(quizler, 1):
         kare, _, _ = soru_kagidi(k, r, etiket=f"HIZLI TEST · {i}/{len(quizler)}", sticker=f"{len(quizler)} soru · {len(quizler) * 5} sn", sayac_sn=3)
         if i == 1:
