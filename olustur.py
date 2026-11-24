@@ -72,7 +72,19 @@ a{color:inherit}header.ust{padding:40px 20px 16px;max-width:960px;margin:auto}h1
 .gonderi small{display:block;color:#888;margin-bottom:6px}.liste a{display:block;background:#fff;border:1px solid #e6e6e2;border-radius:12px;padding:12px 16px;margin:8px 0;text-decoration:none}
 .liste a b{display:block}.liste a span{color:#666;font-size:.85rem}details{background:#fff;border:1px solid #e6e6e2;border-radius:12px;padding:12px 16px;margin:8px 0}
 summary{font-weight:600;cursor:pointer}nav.yol{font-size:.85rem;color:#666;margin:14px 0}nav.yol a{text-decoration:none}
-footer{text-align:center;color:#888;font-size:.85rem;padding:30px}"""
+footer{text-align:center;color:#888;font-size:.85rem;padding:30px}
+.hero{background:linear-gradient(135deg,#13294B,#2a5db0);color:#fff;padding:44px 20px 34px}.hero .ic{max-width:960px;margin:auto}
+.hero h1{color:#fff;font-size:2.1rem}.hero p{color:#e3ecff;margin:8px 0 0;max-width:680px}
+.cips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.cips a{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);color:#fff;padding:7px 14px;border-radius:999px;text-decoration:none;font-size:.9rem;font-weight:600}
+.cips a:hover{background:#fff;color:#13294B}
+.kk{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.kc{background:#fff;border:1px solid #e6e6e2;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.kc .ust2{display:flex;gap:12px;align-items:center}.kc img{width:52px;height:52px;border-radius:50%;flex:none}
+.kc b{font-size:.98rem;line-height:1.3;display:block}.kc .ad{font-size:.8rem;color:#777}.kc p{margin:0;font-size:.86rem;color:#555;flex:1}
+.kc .tg{display:block;text-align:center;color:#fff;font-weight:700;padding:10px;border-radius:12px;text-decoration:none}
+.kc .dt{font-size:.8rem;text-align:center;color:#666}
+.aile h2{font-size:1.15rem;margin:0 0 12px;padding-left:10px;border-left:5px solid}.aile{margin:30px 0}
+.ilanbas{margin-top:44px}"""
 
 
 def e(s):
@@ -347,18 +359,23 @@ def main():
             (hedef / "index.html").write_text(sayfa(f"{ic['baslik']} | Telegram", aciklama, f"{taban}/kanal/{k}/",
                                                     govde, jsonld, f"{taban}/img/og/{k}.png", kelime), encoding="utf-8")
 
-    # ana sayfa
-    bloklar = []
-    for ad, c1, c2, liste in AILELER:
+    # ana sayfa: önce Telegram kanalları, ilanlar en altta
+    bloklar, cipler = [], []
+    for n, (ad, c1, c2, liste) in enumerate(AILELER):
         kartlar = "".join(
-            f'<a class="kart" href="/kanal/{k}/"><img src="/img/{k}.jpg" alt="{e(KANAL[k][0])} logosu" width="56" height="56" loading="lazy">'
-            f'<div><b>{e(KANAL[k][0])}</b><span>@{k}</span></div></a>' for k in liste)
-        bloklar.append(f'<section class="aile"><h2 style="color:{c1}">{e(ad)} Telegram kanalları</h2><div class="grid">{kartlar}</div></section>')
-    govde = ('<header class="ust"><h1>Meslek ve İş İlanı Telegram Kanalları</h1>'
-             '<p class="alt">Özel güvenlik, öğretmen, hemşire, eczane, tıbbi mümessil, iş güvenliği, KPSS ve kamu personel alımları için '
-             'her gün güncellenen, reklamsız Telegram kanalları. İlanlar kaynağından doğrulanır, sınav kanallarında her gün çözümlü soru paylaşılır.</p></header><main>'
-             + (f'<h2>Son eklenen ilanlar</h2>{ilan_listesi(acik[:12])}' if acik else "")
-             + "".join(bloklar) + "</main>")
+            f'<div class="kc"><div class="ust2"><img src="/img/{k}.jpg" alt="{e(KANAL[k][0])} logosu" width="52" height="52" loading="lazy">'
+            f'<div><b>{e(KANAL[k][0])}</b><span class="ad">@{k}</span></div></div>'
+            f'<p>{e(KANAL[k][1][:105].rsplit(" ", 1)[0] + "…" if len(KANAL[k][1]) > 105 else KANAL[k][1])}</p>'
+            f'<a class="tg" style="background:{c1}" href="{e(katil[k])}" rel="noopener">Telegram\'da katıl</a>'
+            f'<a class="dt" href="/kanal/{k}/">Kanal hakkında ›</a></div>' for k in liste)
+        bloklar.append(f'<section class="aile" id="a{n}"><h2 style="color:{c1};border-color:{c1}">{e(ad)}</h2><div class="kk">{kartlar}</div></section>')
+        cipler.append(f'<a href="#a{n}">{e(ad)}</a>')
+    govde = ('<div class="hero"><div class="ic"><h1>Meslek ve İş İlanı Telegram Kanalları</h1>'
+             '<p>Özel güvenlik, öğretmen, hemşire, eczane, tıbbi mümessil, iş güvenliği, KPSS ve kamu alımları için her gün güncellenen, '
+             'reklamsız kanallar. İlanlar kaynağından doğrulanır; sınav kanallarında her gün çözümlü soru paylaşılır.</p>'
+             f'<div class="cips">{"".join(cipler)}</div></div></div><main>'
+             + "".join(bloklar)
+             + (f'<section class="ilanbas"><h2>Son eklenen ilanlar</h2>{ilan_listesi(acik[:8])}</section>' if acik else "") + "</main>")
     jsonld = [
         {"@context": "https://schema.org", "@type": "WebSite", "name": SITE_ADI, "url": f"{taban}/", "inLanguage": "tr", "publisher": org},
         {"@context": "https://schema.org", **org},
